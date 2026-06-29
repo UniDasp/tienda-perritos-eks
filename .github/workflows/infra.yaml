@@ -10,6 +10,9 @@ on:
 jobs:
   terraform:
     runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
 
     defaults:
       run:
