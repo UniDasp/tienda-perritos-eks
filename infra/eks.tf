@@ -1,17 +1,23 @@
-module "eks" {
-  source  = "terraform-aws-modules/eks/aws"
+resource "aws_eks_cluster" "main" {
+  name     = "tienda-cluster"
+  role_arn = "arn:aws:iam::446959396764:role/LabRole"
 
-  vpc_id     = module.vpc.vpc_id
-  subnet_ids = module.vpc.private_subnets
+  vpc_config {
+    subnet_ids = module.vpc.private_subnets
+  }
+}
 
-  iam_role_arn = "arn:aws:iam::446959396764:role/LabRole"
+resource "aws_eks_node_group" "main" {
+  cluster_name    = aws_eks_cluster.main.name
+  node_group_name = "nodes"
+  node_role_arn   = "arn:aws:iam::446959396764:role/LabRole"
+  subnet_ids      = module.vpc.private_subnets
 
-  create_iam_role      = false
-  enable_irsa          = false
-  create_kms_key       = false
-  create_cloudwatch_log_group = false
+  scaling_config {
+    desired_size = 1
+    max_size     = 2
+    min_size     = 1
+  }
 
- 
-  cluster_identity_providers = {}
-  
+  depends_on = [aws_eks_cluster.main]
 }
