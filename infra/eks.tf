@@ -6,11 +6,12 @@ module "eks" {
 
   iam_role_arn = "arn:aws:iam::446959396764:role/LabRole"
 
-
   create_iam_role      = false
   enable_irsa          = false
   create_kms_key       = false
-
-
   create_cloudwatch_log_group = false
+
+ 
+  cluster_identity_providers = {}
+  
 }
