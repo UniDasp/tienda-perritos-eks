@@ -16,34 +16,31 @@ jobs:
         working-directory: ./infra
 
     steps:
-      # 1. Descargar repo
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. Instalar Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      # 3. Credenciales AWS
-      - name: Configurar AWS credentials
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # 4. Init Terraform
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
       - name: Terraform Init
         run: terraform init
 
-      # 5. Validación
       - name: Terraform Validate
         run: terraform validate
 
-      # 6. Plan
       - name: Terraform Plan
         run: terraform plan
 
-      # 7. Apply (crea TODO si no existe)
       - name: Terraform Apply
         run: terraform apply -auto-approve
