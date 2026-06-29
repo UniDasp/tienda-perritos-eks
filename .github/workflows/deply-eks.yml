@@ -13,7 +13,6 @@ env:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout código
         uses: actions/checkout@v4
@@ -33,108 +32,48 @@ jobs:
       - name: Definir tag de imagen
         run: echo "IMAGE_TAG=${GITHUB_SHA::7}" >> $GITHUB_ENV
 
-      # ---------- FRONTEND ----------
-      - name: Build & push FRONTEND
+      # --- Builds ---
+      - name: Build & push imágenes
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          cd frontend
-          docker build -t $ECR_REGISTRY/${ECR_REPO_FRONTEND}:${IMAGE_TAG} .
+          docker build -t $ECR_REGISTRY/${ECR_REPO_FRONTEND}:${IMAGE_TAG} ./frontend
           docker push $ECR_REGISTRY/${ECR_REPO_FRONTEND}:${IMAGE_TAG}
-
-      # ---------- BACKEND ----------
-      - name: Build & push BACKEND
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: |
-          cd backend
-          docker build -t $ECR_REGISTRY/${ECR_REPO_BACKEND}:${IMAGE_TAG} .
+          docker build -t $ECR_REGISTRY/${ECR_REPO_BACKEND}:${IMAGE_TAG} ./backend
           docker push $ECR_REGISTRY/${ECR_REPO_BACKEND}:${IMAGE_TAG}
-
-      # ---------- DB ----------
-      - name: Build & push DB
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: |
-          cd db
-          docker build -t $ECR_REGISTRY/${ECR_REPO_DB}:${IMAGE_TAG} .
+          docker build -t $ECR_REGISTRY/${ECR_REPO_DB}:${IMAGE_TAG} ./db
           docker push $ECR_REGISTRY/${ECR_REPO_DB}:${IMAGE_TAG}
 
-      # ---------- Instalar kubectl ----------
-      - name: Instalar kubectl
-        uses: azure/setup-kubectl@v4
-        with:
-          version: v1.29.0
-
-      # ---------- Configurar kubeconfig de EKS ----------
-      - name: Configurar kubeconfig para EKS
-        env:
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-          EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+      # --- Despliegue ---
+      - name: Configurar kubeconfig
         run: |
-          aws eks update-kubeconfig \
-            --region $AWS_REGION \
-            --name $EKS_CLUSTER_NAME
-          kubectl config current-context
+          aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.EKS_CLUSTER_NAME }}
 
-      # ---------- Aplicar manifests base ----------
-      - name: Aplicar manifests base (namespace y secretos)
+      - name: Desplegar aplicaciones
         env:
-          EKS_NAMESPACE: ${{ secrets.EKS_NAMESPACE }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          NS: ${{ secrets.EKS_NAMESPACE }}
         run: |
           kubectl apply -f k8s/namespace.yaml
-          kubectl apply -f k8s/mysql-secret.yaml -n $EKS_NAMESPACE
-
-      # ---------- Desplegar DB ----------
-      - name: Desplegar DB
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          EKS_NAMESPACE: ${{ secrets.EKS_NAMESPACE }}
-        run: |
-          kubectl apply -f k8s/mysql-deployment.yaml -n $EKS_NAMESPACE
-          kubectl apply -f k8s/mysql-service.yaml -n $EKS_NAMESPACE
-          kubectl set image deployment/tienda-db \
-            mysql=$ECR_REGISTRY/${ECR_REPO_DB}:${IMAGE_TAG} \
-            -n $EKS_NAMESPACE
-          kubectl rollout status deployment/tienda-db -n $EKS_NAMESPACE
-
-      # ---------- Desplegar BACKEND ----------
-      - name: Desplegar BACKEND
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          EKS_NAMESPACE: ${{ secrets.EKS_NAMESPACE }}
-        run: |
+          kubectl apply -f k8s/mysql-secret.yaml -n $NS
+          
+          # DB
+          kubectl delete deployment tienda-db -n $NS --ignore-not-found
+          sed -i "s|image: .*|image: $ECR_REGISTRY/${ECR_REPO_DB}:${IMAGE_TAG}|g" k8s/mysql-deployment.yaml
+          kubectl apply -f k8s/mysql-deployment.yaml -f k8s/mysql-service.yaml -n $NS
+          
+          # BACKEND
+          kubectl delete deployment tienda-backend -n $NS --ignore-not-found
           sed -i "s|image: .*|image: $ECR_REGISTRY/${ECR_REPO_BACKEND}:${IMAGE_TAG}|g" k8s/backend-deployment.yaml
-          kubectl apply -f k8s/backend-deployment.yaml -n $EKS_NAMESPACE
-          kubectl apply -f k8s/backend-service.yaml -n $EKS_NAMESPACE
-          kubectl rollout status deployment/tienda-backend -n $EKS_NAMESPACE
+          kubectl apply -f k8s/backend-deployment.yaml -f k8s/backend-service.yaml -n $NS
+          
+          # FRONTEND
+          kubectl delete deployment tienda-frontend -n $NS --ignore-not-found
+          sed -i "s|image: .*|image: $ECR_REGISTRY/${ECR_REPO_FRONTEND}:${IMAGE_TAG}|g" k8s/frontend-deployment.yaml
+          kubectl apply -f k8s/frontend-deployment.yaml -f k8s/frontend-service.yaml -n $NS
 
-      # ---------- Desplegar FRONTEND ----------
-      - name: Desplegar FRONTEND
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          EKS_NAMESPACE: ${{ secrets.EKS_NAMESPACE }}
+      - name: Verificar rollouts
         run: |
-          kubectl apply -f k8s/frontend-deployment.yaml -n $EKS_NAMESPACE
-          kubectl apply -f k8s/frontend-service.yaml -n $EKS_NAMESPACE
-          kubectl set image deployment/tienda-frontend \
-            frontend=$ECR_REGISTRY/${ECR_REPO_FRONTEND}:${IMAGE_TAG} \
-            -n $EKS_NAMESPACE
-          kubectl rollout status deployment/tienda-frontend -n $EKS_NAMESPACE
-
-      # ---------- HPA (opcional) ----------
-      - name: Aplicar HPA
-        env:
-          EKS_NAMESPACE: ${{ secrets.EKS_NAMESPACE }}
-        run: |
-          if [ -f k8s/backend-hpa.yaml ]; then kubectl apply -f k8s/backend-hpa.yaml -n $EKS_NAMESPACE; fi
-          if [ -f k8s/frontend-hpa.yaml ]; then kubectl apply -f k8s/frontend-hpa.yaml -n $EKS_NAMESPACE; fi
-
-      # ---------- Ver estado final ----------
-      - name: Ver pods y servicios
-        env:
-          EKS_NAMESPACE: ${{ secrets.EKS_NAMESPACE }}
-        run: |
-          kubectl get pods -n $EKS_NAMESPACE
-          kubectl get svc -n $EKS_NAMESPACE
-          kubectl get hpa -n $EKS_NAMESPACE || true
+          kubectl rollout status deployment/tienda-db -n ${{ secrets.EKS_NAMESPACE }}
+          kubectl rollout status deployment/tienda-backend -n ${{ secrets.EKS_NAMESPACE }}
+          kubectl rollout status deployment/tienda-frontend -n ${{ secrets.EKS_NAMESPACE }}
