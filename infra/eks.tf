@@ -1,6 +1,6 @@
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  
+
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
@@ -10,7 +10,6 @@ module "eks" {
   create_iam_role      = false
   enable_irsa          = false
   create_kms_key       = false
-  cluster_encryption_config = {}
 
 
   create_cloudwatch_log_group = false
