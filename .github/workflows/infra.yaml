@@ -2,18 +2,18 @@ name: Infraestructura AWS (Terraform)
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
     paths:
-      - "infra/**"
+      - 'infra/**'
   workflow_dispatch:
 
 jobs:
   terraform:
     runs-on: ubuntu-latest
-    
     permissions:
       contents: read
-
+      id-token: write
     defaults:
       run:
         working-directory: ./infra
