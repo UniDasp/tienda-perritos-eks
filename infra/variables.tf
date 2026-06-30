@@ -5,3 +5,4 @@ variable "region" {
 variable "cluster_name" {
   default = "tienda-cluster"
 }
+
